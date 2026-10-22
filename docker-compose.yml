@@ -1,0 +1,37 @@
+# Local:  docker compose up -d --build      then open http://localhost:3000
+# VPS:    docker compose --profile web up -d --build   (adds HTTPS via Caddy; see README)
+services:
+  pathway:
+    build: .
+    restart: unless-stopped
+    environment:
+      ALLOW_SIGNUP: ${ALLOW_SIGNUP:-false}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+    volumes:
+      - pathway-data:/data          # accounts, progress, saved code
+      - ./media:/media:ro           # put lecture-0.mp4 ... lecture-9.mp4 here
+    # Published on this machine only (127.0.0.1). Caddy reaches it over the compose network.
+    ports:
+      - "${BIND:-127.0.0.1}:3000:3000"
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+
+  caddy:
+    profiles: ["web"]
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [pathway]
+    ports: ["80:80", "443:443"]
+    environment:
+      DOMAIN: ${DOMAIN:-localhost}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  pathway-data:
+  caddy-data:
+  caddy-config:
