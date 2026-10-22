@@ -1,0 +1,7 @@
+  node_modules/
+  data/
+  media/*
+  !media/.gitkeep
+  .env
+  *.log
+  *.tgz
