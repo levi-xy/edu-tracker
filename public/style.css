@@ -155,11 +155,36 @@ button, input, textarea { font: inherit; color: inherit; }
 
 .nav { display: flex; gap: .6rem; justify-content: space-between; margin-top: 2rem; flex-wrap: wrap; }
 
+.side-toggle { display: none; }
+.backdrop[hidden] { display: none; }
+
 @media (max-width: 800px) {
-  .split { grid-template-columns: minmax(0, 1fr); }
-  .side { position: static; max-height: none; border-right: 0; border-bottom: 1px solid var(--line); padding-bottom: .5rem; }
+  .split { grid-template-columns: minmax(0, 1fr); position: relative; }
+  .side-toggle { display: inline-flex; align-items: center; gap: .55rem; margin: .9rem max(16px, env(safe-area-inset-left)) 0; }
+  .side-toggle .bars { display: inline-flex; flex-direction: column; gap: 3px; width: 16px; }
+  .side-toggle .bars span { display: block; height: 2px; background: currentColor; border-radius: 1px; }
+  .side {
+    position: fixed; top: 0; left: 0; bottom: 0; z-index: 50;
+    width: min(85vw, 320px); max-height: none;
+    border-right: 0; box-shadow: 2px 0 16px rgba(0, 0, 0, .3);
+    transform: translateX(-100%); transition: transform .22s ease;
+    padding-top: max(1rem, env(safe-area-inset-top));
+  }
+  .side.open { transform: translateX(0); }
+  .backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, .4); z-index: 40; }
   .lesson { padding-left: max(16px, env(safe-area-inset-left)); }
 }
+
+/* Bigger tap targets on touch devices, regardless of viewport width. */
+@media (pointer: coarse) {
+  .btn { min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+  .btn.small { min-height: 38px; padding: .4rem .85rem; }
+  .side a.item { padding-top: .55rem; padding-bottom: .55rem; }
+  .side summary { padding-top: .7rem; padding-bottom: .7rem; }
+  .opt { padding-top: .55rem; padding-bottom: .55rem; }
+  .vbar .btn.small[data-speed] { min-width: 2.75rem; }
+}
+
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 
 /* quiz */

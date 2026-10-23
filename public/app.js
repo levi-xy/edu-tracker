@@ -140,6 +140,26 @@ async function renderHome() {
 /* ---------- outline ---------- */
 const KIND = { video: 'Lecture', quiz: 'Quiz', exercise: 'Exercise', pset: 'Problem set', reading: 'Reading' };
 
+// On narrow screens the outline is a slide-in drawer instead of a fixed sidebar.
+const sideToggle = () => `
+  <button class="side-toggle btn" id="sideToggle" type="button" aria-expanded="false" aria-controls="side">
+    <span class="bars" aria-hidden="true"><span></span><span></span><span></span></span>Outline
+  </button>
+  <div class="backdrop" id="backdrop" hidden></div>`;
+
+function wireSideToggle() {
+  const btn = $('#sideToggle'), side = $('#side'), backdrop = $('#backdrop');
+  if (!btn || !side) return;
+  const close = () => { side.classList.remove('open'); backdrop.hidden = true; btn.setAttribute('aria-expanded', 'false'); };
+  btn.onclick = () => {
+    const open = side.classList.toggle('open');
+    backdrop.hidden = !open;
+    btn.setAttribute('aria-expanded', String(open));
+  };
+  backdrop.onclick = close;
+  side.addEventListener('click', (e) => { if (e.target.closest('a.item')) close(); });
+}
+
 function outline(course, currentSlug) {
   const all = course.modules.flatMap((m) => m.lessons);
   const done = all.filter((l) => l.status === 'done').length;
@@ -158,7 +178,8 @@ async function renderCourse(slug) {
   const c = await api(`/courses/${encodeURIComponent(slug)}`);
   shell(`
     <div class="split">
-      <nav class="side" aria-label="Course outline">${outline(c, null)}</nav>
+      ${sideToggle()}
+      <nav class="side" id="side" aria-label="Course outline">${outline(c, null)}</nav>
       <div class="lesson">
         <div class="crumbs"><a href="#/">Home</a></div>
         <h1>${esc(c.title)}</h1>
@@ -168,6 +189,7 @@ async function renderCourse(slug) {
         <p class="lead" style="margin-top:2rem;font-size:.85rem">${esc(c.license || '')}${c.source ? ` <a href="${esc(c.source)}" target="_blank" rel="noopener noreferrer">Official course</a>` : ''}</p>
       </div>
     </div>`);
+  wireSideToggle();
 }
 
 /* ---------- Python runner (Web Worker) ---------- */
@@ -221,7 +243,8 @@ async function renderLesson(slug) {
 
   shell(`
     <div class="split">
-      <nav class="side" aria-label="Course outline">${outline(c, L.slug)}</nav>
+      ${sideToggle()}
+      <nav class="side" id="side" aria-label="Course outline">${outline(c, L.slug)}</nav>
       <article class="lesson">
         <div class="crumbs"><a href="#/c/${esc(L.course.slug)}">${esc(L.course.title)}</a> / ${esc(L.module.title)}</div>
         <h1>${esc(L.title)}</h1>
@@ -231,6 +254,7 @@ async function renderLesson(slug) {
         ${nav}
       </article>
     </div>`);
+  wireSideToggle();
 
   const goNext = async () => {
     // Honor system: finishing a lecture or problem set just means you moved on.
@@ -239,14 +263,19 @@ async function renderLesson(slug) {
   };
   $('#next').onclick = goNext;
 
+  // "In progress" needs a real signal, not just opening the page, or every
+  // lesson you glance at and bounce from would look half-done.
+  let engaged = false;
+  const markEngaged = () => { if (engaged) return; engaged = true; put({ status: 'in_progress' }); };
+
   // time on task (only while the tab is visible)
-  secondsTimer = setInterval(() => { if (document.visibilityState === 'visible') put({ seconds: 15, status: 'in_progress' }); }, 15000);
-  put({ status: 'in_progress' });
+  secondsTimer = setInterval(() => { if (document.visibilityState === 'visible') put({ seconds: 15 }); }, 15000);
 
   const flushers = [];
-  if (L.type === 'video') mountVideo(L, put, flushers);
-  if (L.type === 'exercise') mountExercise(L, put, saveTimers, flushers);
-  if (L.type === 'quiz') mountQuiz(L, put);
+  if (L.type === 'video') mountVideo(L, put, flushers, markEngaged);
+  if (L.type === 'exercise') mountExercise(L, put, saveTimers, flushers, markEngaged);
+  if (L.type === 'quiz') mountQuiz(L, put, markEngaged);
+  if (L.type === 'reading' || L.type === 'pset') saveTimers.push(setTimeout(markEngaged, 8000));
 
   cleanup = () => {
     clearInterval(secondsTimer);
@@ -255,7 +284,7 @@ async function renderLesson(slug) {
   };
 }
 
-function mountVideo(L, put, flushers) {
+function mountVideo(L, put, flushers, markEngaged) {
   const box = $('#media');
   const v = L.video;
   if (!v?.src) {
@@ -304,9 +333,25 @@ function mountVideo(L, put, flushers) {
   vid.addEventListener('pause', () => save(true));
   vid.addEventListener('ended', () => { finished = true; put({ videoPos: 0, status: 'done' }); });
   flushers.push(() => { if (vid.duration) put({ videoPos: vid.currentTime }, true); });
+
+  // Only counts as "started" after a real stretch of playback, not just opening the page.
+  const ENGAGE_SECONDS = 10;
+  let watchedSeconds = 0;
+  let watchTicker = null;
+  vid.addEventListener('play', () => {
+    if (watchTicker) return;
+    watchTicker = setInterval(() => {
+      watchedSeconds += 1;
+      if (watchedSeconds >= ENGAGE_SECONDS) { clearInterval(watchTicker); watchTicker = null; markEngaged(); }
+    }, 1000);
+  });
+  const stopWatchTicker = () => { clearInterval(watchTicker); watchTicker = null; };
+  vid.addEventListener('pause', stopWatchTicker);
+  vid.addEventListener('ended', stopWatchTicker);
+  flushers.push(stopWatchTicker);
 }
 
-function mountQuiz(L, put) {
+function mountQuiz(L, put, markEngaged) {
   const work = $('#work');
   const PASS = 0.7;
   let last = null;
@@ -328,6 +373,7 @@ function mountQuiz(L, put) {
         <div class="toolbar"><button class="btn primary" type="submit">Check answers</button><span class="status" id="qst"></span></div>
       </form>
       <div id="qres"></div>`;
+    $('#qz').addEventListener('change', markEngaged, { once: true });
     $('#qz').onsubmit = async (e) => {
       e.preventDefault();
       let score = 0;
@@ -360,7 +406,7 @@ function mountQuiz(L, put) {
   draw();
 }
 
-function mountExercise(L, put, saveTimers, flushers) {
+function mountExercise(L, put, saveTimers, flushers, markEngaged) {
   const key = `draft:${L.slug}`;
   const saved = L.progress.code;
   const start = saved ?? L.starter ?? '';
@@ -386,6 +432,7 @@ function mountExercise(L, put, saveTimers, flushers) {
 
   const persist = () => put({ code: code.value });
   code.addEventListener('input', () => {
+    markEngaged();
     saveTimers.forEach(clearTimeout); saveTimers.length = 0;
     $('#st').textContent = 'Saving…';
     saveTimers.push(setTimeout(async () => { await persist(); $('#st').textContent = 'Saved'; }, 700));
