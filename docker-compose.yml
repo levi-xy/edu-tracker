@@ -1,5 +1,6 @@
-# Local:  docker compose up -d --build      then open http://localhost:3000
-# VPS:    docker compose --profile web up -d --build   (adds HTTPS via Caddy; see README)
+# LAN:      docker compose up -d --build                then open http://<host-ip>:3000
+# VPS:      docker compose --profile web up -d --build   (adds HTTPS via Caddy; see README)
+# Tunnel:   docker compose --profile tunnel up -d --build (adds cloudflared; see README)
 services:
   pathway:
     build: .
@@ -30,6 +31,20 @@ services:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy-data:/data
       - caddy-config:/config
+
+  # Outbound-only connection to Cloudflare; no inbound ports needed on this host at all.
+  # Point the tunnel's public hostname at http://pathway:3000 in the Cloudflare dashboard.
+  cloudflared:
+    profiles: ["tunnel"]
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    depends_on: [pathway]
+    command: tunnel run
+    environment:
+      TUNNEL_TOKEN: ${CLOUDFLARE_TUNNEL_TOKEN}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
 
 volumes:
   pathway-data:

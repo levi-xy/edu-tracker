@@ -44,6 +44,46 @@ are, so look on each lecture page. Do not rip videos from YouTube; that breaks i
 
 Videos need disk space, so check your VPS size first. 720p is plenty.
 
+## Run it on your LAN, add a Cloudflare Tunnel later
+
+For a home server (e.g. a Proxmox VM) that starts out LAN-only and later gets
+remote access through Cloudflare:
+
+```bash
+cp .env.example .env     # leave BIND=0.0.0.0, COOKIE_SECURE=false for now
+mkdir -p media
+docker compose up -d --build
+```
+
+Open `http://<vm-ip>:3000` from any device on your network and create your account.
+
+When you're ready for remote access, create a tunnel in the Cloudflare Zero
+Trust dashboard (Networks > Tunnels > Create a tunnel > Docker), point its
+public hostname at `http://pathway:3000`, and put the token it gives you in
+`.env` as `CLOUDFLARE_TUNNEL_TOKEN`. Then:
+
+```bash
+docker compose --profile tunnel up -d --build
+```
+
+`cloudflared` only makes an outbound connection to Cloudflare — no inbound
+ports are needed on the VM or your router for this to work. Once the tunnel
+hostname is your only way in, lock the rest down in `.env`:
+
+```
+BIND=127.0.0.1       # stop answering direct LAN requests
+COOKIE_SECURE=true    # the public hostname is always HTTPS
+```
+
+Add email-based login (Cloudflare Access) in the Zero Trust dashboard as a
+policy on that hostname — it gates the whole app before Pathway's own login
+even runs.
+
+Note the trade-off: with `COOKIE_SECURE=true`, logging in over plain
+`http://<vm-ip>:3000` stops working (the browser won't send a Secure cookie
+over HTTP). Decide whether LAN devices should also go through the tunnel
+hostname, or keep a separate non-secure path for them.
+
 ## Put it on a VPS with HTTPS
 
 1. Get a small VPS (1 GB RAM is enough) and point a domain or subdomain at its IP address.
