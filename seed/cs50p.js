@@ -10,8 +10,7 @@ const lecture = (n, title, topics, minutes = 90) => ({
   source: `${BASE}weeks/${n}/`,
   minutes,
   body: `## What this lecture covers\n\n${topics.map((t) => `- ${t}`).join('\n')}\n\n` +
-    `Official lecture page and notes: [cs50.harvard.edu](${BASE}weeks/${n}/). ` +
-    `Put the video file at \`media/lecture-${n}.mp4\` and it plays here.`,
+    `Official lecture page and notes: [cs50.harvard.edu](${BASE}weeks/${n}/).`,
 });
 
 const ex = (slug, title, body, starter, tests, minutes = 20) => ({

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, seedAll } from './db.js';
+import { videoDurationMinutes } from './videoDuration.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const PORT = Number(process.env.PORT || 3000);
@@ -149,11 +150,16 @@ const VIDEO_EXT = ['.mp4', '.m4v', '.webm', '.mov'];
 function mediaInfo(name) {
   if (!name) return null;
   for (const ext of VIDEO_EXT) {
-    if (fs.existsSync(path.join(MEDIA_DIR, name + ext))) {
-      return { src: `/media/${name}${ext}`, captions: fs.existsSync(path.join(MEDIA_DIR, name + '.vtt')) ? `/media/${name}.vtt` : null };
+    const file = path.join(MEDIA_DIR, name + ext);
+    if (fs.existsSync(file)) {
+      return {
+        src: `/media/${name}${ext}`,
+        captions: fs.existsSync(path.join(MEDIA_DIR, name + '.vtt')) ? `/media/${name}.vtt` : null,
+        minutes: videoDurationMinutes(file),
+      };
     }
   }
-  return { src: null, captions: null, expected: name };
+  return { src: null, captions: null, minutes: null, expected: name };
 }
 // Only signed-in users can stream. express.static answers Range requests, so seeking works.
 app.use('/media', (req, res, next) => (currentUser(req) ? next() : res.status(401).send('Sign in first')),
@@ -204,8 +210,12 @@ app.get('/api/courses/:slug', (req, res) => {
     .all(req.user.id).map((r) => [r.slug, r.status]));
   const modules = db.prepare('SELECT * FROM modules WHERE course_id=? ORDER BY ord').all(c.id).map((m) => ({
     slug: m.slug, title: m.title, summary: m.summary,
-    lessons: db.prepare('SELECT slug,title,type,minutes FROM lessons WHERE module_id=? ORDER BY ord').all(m.id)
-      .map((l) => ({ ...l, status: prog.get(l.slug) || 'todo' })),
+    lessons: db.prepare('SELECT slug,title,type,media,minutes FROM lessons WHERE module_id=? ORDER BY ord').all(m.id)
+      .map(({ media, ...l }) => ({
+        ...l,
+        minutes: l.type === 'video' ? (mediaInfo(media)?.minutes ?? l.minutes) : l.minutes,
+        status: prog.get(l.slug) || 'todo',
+      })),
   }));
   const all = modules.flatMap((m) => m.lessons);
   const next = all.find((l) => l.status !== 'done') || null;
@@ -224,9 +234,10 @@ app.get('/api/lessons/:slug', (req, res) => {
   const i = list.findIndex((x) => x.id === l.id);
   db.prepare(`INSERT INTO state (user_id,last_lesson_id,updated_at) VALUES (?,?,datetime('now'))
     ON CONFLICT(user_id) DO UPDATE SET last_lesson_id=excluded.last_lesson_id, updated_at=excluded.updated_at`).run(req.user.id, l.id);
+  const video = mediaInfo(l.media);
   res.json({
-    slug: l.slug, type: l.type, title: l.title, body: l.body, video: mediaInfo(l.media), starter: l.starter,
-    tests: l.tests ? JSON.parse(l.tests) : null, source: l.source_url, minutes: l.minutes,
+    slug: l.slug, type: l.type, title: l.title, body: l.body, video, starter: l.starter,
+    tests: l.tests ? JSON.parse(l.tests) : null, source: l.source_url, minutes: video?.minutes ?? l.minutes,
     module: { slug: l.module_slug, title: l.module_title },
     course: { slug: l.course_slug, title: l.course_title },
     prev: list[i - 1]?.slug || null, next: list[i + 1]?.slug || null,
